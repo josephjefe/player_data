@@ -7,12 +7,6 @@ library(rvest)
 
 # Data----
 
-if (!dir.exists("./images")) dir.create("./images")
-if (!dir.exists("./data")) dir.create("./data")
-options(scipen=999)
-
-YEAR <- 2024
-
 teams_espn <- load_teams(current = TRUE) |> 
   mutate(team_abbr_espn = case_when(
     team_abbr == "LA" ~ "LAR", 
@@ -177,5 +171,3 @@ defense_style <- df_clean |>
 saveRDS(depth_charts, paste0("Data/", "espn_depth_charts.rds"))
 
 saveRDS(defense_style, paste0("Data/", "espn_defense_style.rds"))
-
-
