@@ -1,7 +1,7 @@
 on:
   schedule:
     # Every day at 9:30 UTC/5:30 ET
-    - cron:  '30 9 * 1,2,2-9 *'
+    - cron:  '30 9 * * *'
   workflow_dispatch:
   
 jobs:
