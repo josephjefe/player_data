@@ -4,93 +4,200 @@ library(stringr)
 library(nflreadr)
 library(janitor)
 library(rvest)
+library(httr2)
+library(purrr)
 
-# Data----
+# --------------------
+# Teams
+# --------------------
 
 teams_espn <- load_teams(current = TRUE) |> 
   mutate(team_abbr_espn = case_when(
     team_abbr == "LA" ~ "LAR", 
     team_abbr == "WAS" ~ "WSH", 
-    TRUE ~ team_abbr))
+    TRUE ~ team_abbr
+  ))
 
-team_names_espn <- c(teams_espn$team_abbr_espn)
+team_names_espn <- teams_espn$team_abbr_espn
 
-datalist = list()
+# --------------------
+# Helper: safe page fetch
+# --------------------
 
-for(i in 1:32){
-  
-  #i <- "KC"
-  url <- paste0("https://www.espn.com/nfl/team/depth/_/name/", team_names_espn[i])
-  # url <- paste0("https://www.espn.com/nfl/team/depth/_/name/", "SF")
-  
-  # Get data from ESPN
-  tables <- read_html(url) |> 
-    html_elements(".ResponsiveTable--fixed-left")
-  # Extract data from table for offense
-  depth_chart_off1 <- tables[[1]] |> 
-    html_table()
-  names_row_off <- which(depth_chart_off1[1] == "Starter")
-  depth_chart_off2 <- depth_chart_off1 |> 
-    row_to_names(row_number = names_row_off, remove_rows_above = FALSE)  |> 
-    clean_names()
-  pos_off <- depth_chart_off2 |> 
-    slice_head(n = names_row_off - 1) |>
-    select("position" = "starter")
-  depth_chart_off3 <- depth_chart_off2 |> 
-    slice_tail(n = names_row_off - 1)
-  depth_chart_off <- bind_cols(pos_off, depth_chart_off3) |> 
-    mutate(rank = row_number(), .by = position) |> 
-    mutate(position = case_when(
-      rank == 1 & position == "WR" ~ "LWR", 
-      rank == 2 & position == "WR" ~ "RWR", 
-      rank == 3 & position == "WR" ~ "SWR", 
-      position == "FB" ~ "RB", 
-      TRUE ~ position
-    )) |> 
-    select(-rank)
-  # Extract data for defense
-  depth_chart_def1 <- tables[[2]] |> 
-    html_table()
-  names_row_def <- which(depth_chart_def1[1] == "Starter")
-  depth_chart_def2 <- depth_chart_def1 |> 
-    row_to_names(row_number = names_row_def, remove_rows_above = FALSE) |> 
-    clean_names()
-  pos_def <- depth_chart_def2 |> 
-    slice_head(n = names_row_def - 1) |>
-    select("position" = "starter")
-  depth_chart_def3 <- depth_chart_def2 |> 
-    slice_tail(n = names_row_def - 1)
-  depth_chart_def <- bind_cols(pos_def, depth_chart_def3)
-  # Extract data for special teams
-  depth_chart_st1 <- tables[[3]] |> 
-    html_table()
-  names_row_st <- which(depth_chart_st1[1] == "Starter")
-  depth_chart_st2 <- depth_chart_st1 |> 
-    row_to_names(row_number = names_row_st, remove_rows_above = FALSE) |> 
-    clean_names()
-  pos_st <- depth_chart_st2 |> 
-    slice_head(n = names_row_st - 1) |>
-    select("position" = "starter")
-  depth_chart_st3 <- depth_chart_st2 |> 
-    slice_tail(n = names_row_st - 1)
-  depth_chart_st <- bind_cols(pos_st, depth_chart_st3) |> 
-    filter(position %in% c("PK", "P", "LS")) |> 
-    mutate(position = if_else(position == "PK", "K", position))
-  # Extract table titles to figure out defense style (34 or 43)
-  titles_raw <- read_html(url) |> 
-    html_elements(".Table__Title")
-  titles <- titles_raw[[2]] |> 
-    html_text2() 
-  # Join everything together
-  depth_chart <- bind_rows(depth_chart_off, depth_chart_def, depth_chart_st)
-  depth_chart$def_style <- titles
-  depth_chart$team_abbr <- team_names_espn[i]
-  
-  datalist[[i]] <- depth_chart
-  
+fetch_page <- function(url) {
+
+  req <- request(url) |>
+    req_user_agent(
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
+    ) |>
+    req_retry(max_tries = 3) |>
+    req_timeout(30)
+
+  resp <- req_perform(req)
+
+  resp_body_html(resp)
 }
 
-df_raw <- dplyr::bind_rows(datalist)
+# --------------------
+# Helper: scrape one team
+# --------------------
+
+scrape_team <- function(team) {
+
+  url <- paste0(
+    "https://www.espn.com/nfl/team/depth/_/name/",
+    team
+  )
+
+  message("Scraping: ", team)
+
+  page <- tryCatch(
+    fetch_page(url),
+    error = function(e) {
+      message("FAILED FETCH: ", team, " | ", url)
+      return(NULL)
+    }
+  )
+
+  if (is.null(page)) return(NULL)
+
+  tables <- page |> html_elements(".ResponsiveTable--fixed-left")
+
+  # If ESPN blocks or changes layout
+  if (length(tables) < 3) {
+    message("WARNING: missing tables for ", team)
+    return(NULL)
+  }
+
+  # --------------------
+  # OFFENSE
+  # --------------------
+  depth_chart_off1 <- tables[[1]] |> html_table()
+
+  names_row_off <- which(depth_chart_off1[1] == "Starter")
+
+  if (length(names_row_off) == 0) {
+    message("WARNING: offense structure changed for ", team)
+    return(NULL)
+  }
+
+  depth_chart_off2 <- depth_chart_off1 |>
+    row_to_names(row_number = names_row_off, remove_rows_above = FALSE) |>
+    clean_names()
+
+  pos_off <- depth_chart_off2 |>
+    slice_head(n = names_row_off - 1) |>
+    select(position = starter)
+
+  depth_chart_off3 <- depth_chart_off2 |>
+    slice_tail(n = names_row_off - 1)
+
+  depth_chart_off <- bind_cols(pos_off, depth_chart_off3) |>
+    mutate(rank = row_number(), .by = position) |>
+    mutate(position = case_when(
+      rank == 1 & position == "WR" ~ "LWR",
+      rank == 2 & position == "WR" ~ "RWR",
+      rank == 3 & position == "WR" ~ "SWR",
+      position == "FB" ~ "RB",
+      TRUE ~ position
+    )) |>
+    select(-rank)
+
+  # --------------------
+  # DEFENSE
+  # --------------------
+  depth_chart_def1 <- tables[[2]] |> html_table()
+
+  names_row_def <- which(depth_chart_def1[1] == "Starter")
+
+  if (length(names_row_def) == 0) {
+    message("WARNING: defense structure changed for ", team)
+    return(NULL)
+  }
+
+  depth_chart_def2 <- depth_chart_def1 |>
+    row_to_names(row_number = names_row_def, remove_rows_above = FALSE) |>
+    clean_names()
+
+  pos_def <- depth_chart_def2 |>
+    slice_head(n = names_row_def - 1) |>
+    select(position = starter)
+
+  depth_chart_def3 <- depth_chart_def2 |>
+    slice_tail(n = names_row_def - 1)
+
+  depth_chart_def <- bind_cols(pos_def, depth_chart_def3)
+
+  # --------------------
+  # SPECIAL TEAMS
+  # --------------------
+  depth_chart_st1 <- tables[[3]] |> html_table()
+
+  names_row_st <- which(depth_chart_st1[1] == "Starter")
+
+  depth_chart_st2 <- depth_chart_st1 |>
+    row_to_names(row_number = names_row_st, remove_rows_above = FALSE) |>
+    clean_names()
+
+  pos_st <- depth_chart_st2 |>
+    slice_head(n = names_row_st - 1) |>
+    select(position = starter)
+
+  depth_chart_st3 <- depth_chart_st2 |>
+    slice_tail(n = names_row_st - 1)
+
+  depth_chart_st <- bind_cols(pos_st, depth_chart_st3) |>
+    filter(position %in% c("PK", "P", "LS")) |>
+    mutate(position = if_else(position == "PK", "K", position))
+
+  # --------------------
+  # TITLE / DEFENSE SCHEME
+  # --------------------
+  titles <- page |>
+    html_elements(".Table__Title") |>
+    html_text2()
+
+  def_style <- ifelse(length(titles) >= 2, titles[2], NA_character_)
+
+  # --------------------
+  # COMBINE
+  # --------------------
+  depth_chart <- bind_rows(
+    depth_chart_off,
+    depth_chart_def,
+    depth_chart_st
+  ) |>
+    mutate(
+      def_style = def_style,
+      team_abbr = team
+    )
+
+  return(depth_chart)
+}
+
+# --------------------
+# MAIN LOOP
+# --------------------
+
+datalist <- vector("list", length(team_names_espn))
+
+for (i in seq_along(team_names_espn)) {
+
+  team <- team_names_espn[i]
+
+  datalist[[i]] <- tryCatch(
+    scrape_team(team),
+    error = function(e) {
+      message("FAILED TEAM: ", team)
+      return(NULL)
+    }
+  )
+
+  Sys.sleep(runif(1, 1, 3))  # IMPORTANT: rate limiting protection
+}
+
+df_raw <- bind_rows(datalist)
+
 df_raw[df_raw == "-"] <- NA
 
 df_clean <- df_raw |> 
