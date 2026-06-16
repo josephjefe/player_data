@@ -33,8 +33,14 @@ fetch_page <- function(url) {
     req_retry(max_tries = 3) |>
     req_timeout(30)
 
-  resp <- req_perform(req)
-
+  resp <- tryCatch(
+    req_perform(req),
+    error = function(e) {
+      message("REQUEST FAILED: ", url)
+      message(e$message)
+      return(NULL)
+    }
+  )
   resp_body_html(resp)
 }
 
