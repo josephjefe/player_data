@@ -27,21 +27,22 @@ team_names_espn <- teams_espn$team_abbr_espn
 fetch_page <- function(url) {
 
   req <- request(url) |>
-    req_user_agent(
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
-    ) |>
-    req_retry(max_tries = 3) |>
-    req_timeout(30)
+    req_user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)") |>
+    req_retry(max_tries = 3)
 
-  resp <- tryCatch(
-    req_perform(req),
+  tryCatch(
+    {
+      resp <- req_perform(req)
+      message("SUCCESS: ", url)
+      resp_body_html(resp)
+    },
     error = function(e) {
-      message("REQUEST FAILED: ", url)
-      message(e$message)
+      message("FAILED FETCH: ", url)
+      message("ERROR CLASS: ", paste(class(e), collapse = ", "))
+      message("ERROR MESSAGE: ", conditionMessage(e))
       return(NULL)
     }
   )
-  resp_body_html(resp)
 }
 
 # --------------------
