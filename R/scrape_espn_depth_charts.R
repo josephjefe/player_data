@@ -152,7 +152,7 @@ depth_charts <- all_depth |>
 
 defense_styles <- depth_charts |>
   select(team_abbr, def_style = scheme_name) |>
-  filter(str_starts(scheme_name, "Base")) |>
+  filter(str_starts(def_style, "Base")) |>
   distinct()
 
 
