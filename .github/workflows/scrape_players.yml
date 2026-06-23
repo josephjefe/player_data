@@ -25,6 +25,9 @@ jobs:
             any::nflreadr
             any::cli
             any::glue
+            any::httr2
+            any::jsonlite
+            any::purrr
             sportsdataverse/cfbfastR
 
       - name: Check out repository
