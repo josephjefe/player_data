@@ -83,7 +83,7 @@ get_depth <- function(
 
   ath_cols <- names(items)[stringr::str_detect(
     names(items),
-    "^positions\\.[a-z]{1,3}\\.athletes$"
+    "^positions\\.[a-z]{1,4}\\.athletes$"
   )]
 
   purrr::map_dfr(seq_len(nrow(items)), function(i) {
@@ -108,7 +108,7 @@ get_depth <- function(
           scheme_name = row$name[[1]],
           position_depth_chart = stringr::str_extract(
             col,
-            "(?<=positions\\.)[a-z]{1,3}(?=\\.athletes)"
+            "(?<=positions\\.)[a-z]{1,4}(?=\\.athletes)"
           ),
           # position = jefeR::clean_positions(position_espn, target = "clean"),
           # position_group = jefeR::clean_positions(position, target = "generic")
@@ -130,8 +130,68 @@ depth_charts <- all_depth |>
       mutate(espn_id = as.character(espn_id)),
     by = c("team_abbr", "team_id", "espn_id")
   ) |>
-  mutate(taem_abbr = nflreadr::clean_team_abbrs(team_abbr)) |>
+  mutate(team_abbr = nflreadr::clean_team_abbrs(team_abbr)) |>
+  arrange(team_abbr, position_roster, rank, slot) |>
   mutate(position_depth_chart = toupper(position_depth_chart)) |>
+  filter(!position_depth_chart %in% c("H", "KR", "PR")) |>
+  mutate(
+    position_depth_chart = case_when(
+      slot == 1 & position_depth_chart == "WR" ~ "LWR",
+      slot == 2 & position_depth_chart == "WR" ~ "RWR",
+      slot > 2 & position_depth_chart == "WR" ~ "SWR",
+      position_depth_chart == "FB" ~ "RB",
+      position_depth_chart == "PK" ~ "K",
+      TRUE ~ position_depth_chart
+    )
+  ) |>
+  mutate(
+    position_depth_chart = case_when(
+      position_depth_chart %in% c("FB") ~ "RB",
+      TRUE ~ position_depth_chart
+    )
+  ) |>
+  mutate(
+    position_roster = case_when(
+      position_roster %in% c("LT", "RT", "T") ~ "OT",
+      position_roster %in% c("LG", "RG", "G") ~ "OG",
+      position_roster %in% c("FB") ~ "RB",
+      position_roster %in% c("DE", "OLB") ~ "EDGE",
+      position_roster %in% c("ILB") ~ "LB",
+      position_roster %in% c("LDT", "RDT", "NT", "DT", "IDL") ~ "DL",
+      position_roster %in% c("FS", "SS") ~ "S",
+      TRUE ~ position_roster
+    ),
+    .after = position_roster
+  ) |>
+  mutate(
+    position_roster = case_when(
+      position_roster %in% c("LT", "RT", "T") ~ "OT",
+      position_roster %in% c("LG", "RG", "G") ~ "OG",
+      position_roster %in% c("FB") ~ "RB",
+      position_roster %in% c("LWR", "RWR", "SWR") ~ "WR",
+      position_roster %in%
+        c("WLB", "SLB") &
+        scheme_name == "Base 3-4 D" ~ "EDGE",
+      position_roster %in% c("LILB", "RILB", "MLB", "WLB", "SLB") ~ "LB",
+      position_roster %in% c("LDE", "RDE") & scheme_name == "Base 3-4 D" ~ "DL",
+      position_roster %in% c("LDE", "RDE") ~ "EDGE",
+      position_roster %in% c("LDT", "RDT", "NT") ~ "DL",
+      position_roster %in% c("FS", "SS") ~ "S",
+      position_roster %in% c("LT", "RT") ~ "OT",
+      position_roster %in% c("LCB", "RCB", "NB") ~ "CB",
+      position_roster %in% c("PK") ~ "K",
+      TRUE ~ position_roster
+    )
+  ) |>
+  mutate(
+    position_depth_chart = case_when(
+      position_depth_chart %in% c("WLB") & scheme_name == "Base 3-4 D" ~ "LOLB",
+      position_depth_chart %in% c("SLB") & scheme_name == "Base 3-4 D" ~ "ROLB",
+      position_depth_chart %in% c("LDE") & scheme_name == "Base 3-4 D" ~ "LDT",
+      position_depth_chart %in% c("RDE") & scheme_name == "Base 3-4 D" ~ "RDT",
+      TRUE ~ position_depth_chart
+    )
+  ) |>
   select(
     espn_id,
     espn_alt_id,
@@ -159,3 +219,7 @@ defense_styles <- depth_charts |>
 saveRDS(depth_charts, paste0("Data/", "espn_depth_charts.rds"))
 
 saveRDS(defense_styles, paste0("Data/", "espn_defense_style.rds"))
+
+players <- nflreadr::rds_from_url(
+  "https://github.com/Josephhero/player_data/raw/main/Data/espn_depth_charts.rds"
+)
