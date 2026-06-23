@@ -137,7 +137,7 @@ depth_charts <- all_depth |>
     espn_alt_id,
     first_name,
     last_name,
-    display_name,
+    name = display_name,
     short_name,
     position_roster,
     position_depth_chart,
