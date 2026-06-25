@@ -195,7 +195,8 @@ depth_charts <- all_depth |>
     team_id,
     experience_years,
     scheme_id,
-    scheme_name
+    scheme_name, 
+    headshot_url
   )
 
 defense_styles <- depth_charts |>
