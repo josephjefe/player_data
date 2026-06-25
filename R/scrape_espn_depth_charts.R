@@ -26,6 +26,9 @@ team_ids <- teams |>
 
 
 get_roster <- function(team_abbr, team_id) {
+  
+  # team_abbr <- "KC"
+  # team_id <- 12
   url <- paste0(
     "https://site.api.espn.com/apis/site/v2/sports/football/nfl/teams/",
     team_abbr,
@@ -52,7 +55,8 @@ get_roster <- function(team_abbr, team_id) {
       short_name,
       position_roster = position_abbreviation,
       experience_years,
-      status_name
+      status_name, 
+      headshot_url = headshot_href
     )
 
   roster
